@@ -157,6 +157,25 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--oro);box
 .az.mini{background:#fff;color:var(--testo-soft);border:1.5px solid var(--sabbia);min-height:46px;font-size:.9rem}
 .az.mini.elimina{color:var(--rosso);border-color:#E2A29D}
 .az.riapri{grid-column:1/-1;background:#fff;color:var(--testo);border:1.5px solid var(--sabbia)}
+
+/* RICERCA, RIEPILOGO, SEZIONI */
+.riepilogo{display:none;gap:8px;margin-bottom:10px}
+.riepilogo.on{display:flex}
+.rp{flex:1;background:var(--avorio);border:1.5px solid var(--sabbia);border-radius:12px;padding:8px 6px;text-align:center;cursor:pointer;font:inherit;color:var(--testo);min-height:58px}
+.rp b{display:block;font-family:'Playfair Display',serif;font-size:1.4rem;line-height:1.1}
+.rp span{font-size:.72rem;color:var(--testo-soft)}
+.rp.oggi{background:var(--oro);border-color:var(--oro-scuro)}
+.rp.oggi span{color:var(--nero)}
+.rp.scad{background:var(--rosso-bg);border-color:var(--rosso)}
+.rp.scad b,.rp.scad span{color:var(--rosso)}
+.rp.sel{outline:3px solid var(--nero)}
+.ricerca{position:relative;margin-bottom:10px}
+.ricerca input{padding-right:48px}
+.ricerca button{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:50%;border:0;background:var(--sabbia);color:var(--testo);font-size:22px;line-height:1;cursor:pointer}
+.sezione{font-family:'Playfair Display',serif;font-size:1.05rem;margin:14px 2px 8px;color:var(--testo);display:flex;justify-content:space-between;align-items:baseline}
+.sezione small{font-family:'Lato',sans-serif;font-size:.8rem;color:var(--testo-soft)}
+.sezione.rossa{color:var(--rosso)}
+.chip.incasso{border-color:var(--oro-scuro)}
 .vuoto{text-align:center;color:var(--testo-soft);padding:30px 10px;font-family:'Playfair Display',serif;font-style:italic;font-size:1.1rem}
 .contatore{color:var(--testo-soft);font-size:.85rem;margin:0 2px 10px}
 
@@ -252,6 +271,11 @@ footer{text-align:center;color:var(--testo-soft);font-family:'Playfair Display',
   <div class="vista">
     <button class="chip attivo" id="vAttivi">Da consegnare</button>
     <button class="chip" id="vStorico">Storico</button>
+  </div>
+  <div class="riepilogo" id="riepilogo"></div>
+  <div class="ricerca">
+    <input type="search" id="cerca" placeholder="Cerca cliente, gusto, telefono…" autocomplete="off" enterkeyhint="search"/>
+    <button type="button" id="cercaX" aria-label="Cancella ricerca" style="display:none">×</button>
   </div>
   <div class="filtri" id="filtri"></div>
   <div class="contatore" id="contatore"></div>
@@ -365,7 +389,7 @@ window.addEventListener('offline',aggiornaRete);
 document.addEventListener('visibilitychange',function(){if(!document.hidden)sincronizza()});
 
 /* ---------- STATO ---------- */
-var ordini=[], fotoCorrente='', modId=null, vista='attivi', filtroMese='tutti';
+var ordini=[], fotoCorrente='', modId=null, vista='attivi', filtroMese='tutti', testoCerca='', soloIncasso=false, filtroPeriodo='';
 var $=function(id){return document.getElementById(id)};
 var MESI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
 var GIORNI=['domenica','lunedì','martedì','mercoledì','giovedì','venerdì','sabato'];
@@ -451,7 +475,7 @@ $('salva').addEventListener('click',function(){
 /* ---------- LISTA ---------- */
 function carica(){return tutti().then(function(l){ordini=l;disegna()})}
 function setVista(v){
-  vista=v;filtroMese='tutti';
+  vista=v;filtroMese='tutti';filtroPeriodo='';soloIncasso=false;
   $('vAttivi').classList.toggle('attivo',v==='attivi');
   $('vStorico').classList.toggle('attivo',v==='storico');
   disegna();
@@ -459,30 +483,15 @@ function setVista(v){
 $('vAttivi').addEventListener('click',function(){setVista('attivi')});
 $('vStorico').addEventListener('click',function(){setVista('storico')});
 
-function disegna(){
-  var base=ordini.filter(function(o){return vista==='attivi'?!o.archiviato:o.archiviato});
-  base.sort(function(a,b){return vista==='attivi'?dataObj(a)-dataObj(b):dataObj(b)-dataObj(a)});
+function norm(t){return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')}
+function giorniDa(o){var a=new Date(isoOggi()+'T00:00');var b=new Date(o.data+'T00:00');return Math.round((b-a)/86400000)}
+function sezioneDi(o){
+  var g=giorniDa(o);
+  if(g<0)return 0;if(g===0)return 1;if(g===1)return 2;if(g<=7)return 3;return 4;
+}
+var NOMI_SEZ=['Da recuperare (data passata)','Oggi','Domani','Nei prossimi 7 giorni','Più avanti'];
 
-  // filtri mese
-  var mesi=[];base.forEach(function(o){var k=meseKey(o);if(mesi.indexOf(k)<0)mesi.push(k)});
-  if(filtroMese!=='tutti'&&mesi.indexOf(filtroMese)<0)filtroMese='tutti';
-  var f='<button class="chip'+(filtroMese==='tutti'?' attivo':'')+'" data-m="tutti">Tutti</button>';
-  mesi.forEach(function(k){f+='<button class="chip'+(filtroMese===k?' attivo':'')+'" data-m="'+k+'">'+meseLabel(k)+'</button>'});
-  $('filtri').innerHTML=f;
-  Array.prototype.forEach.call($('filtri').querySelectorAll('.chip'),function(b){
-    b.addEventListener('click',function(){filtroMese=b.getAttribute('data-m');disegna()});
-  });
-
-  var vis=filtroMese==='tutti'?base:base.filter(function(o){return meseKey(o)===filtroMese});
-  var da=vis.reduce(function(s,o){return s+Math.max((o.prezzo||0)-(o.acconto||0),0)},0);
-  $('contatore').textContent=vis.length+(vis.length===1?' ordine':' ordini')+(vista==='attivi'&&vis.length?' · da incassare '+euro(da):'');
-
-  if(!vis.length){
-    $('lista').innerHTML='<div class="vuoto">'+(vista==='attivi'?'Nessuna consegna in programma.<br>Salva la prima creazione qui sopra.':'Lo storico è ancora vuoto.')+'</div>';
-    return;
-  }
-  var oggi=isoOggi();
-  $('lista').innerHTML=vis.map(function(o){
+function schedaHtml(o,oggi){
     var d=dataObj(o),saldo=Math.max((o.prezzo||0)-(o.acconto||0),0);
     var tag='';
     if(vista==='attivi'){
@@ -524,8 +533,86 @@ function disegna(){
     h+='<button class="az mini" data-a="modifica">✎ Modifica</button><button class="az mini elimina" data-a="elimina">🗑 Elimina</button>';
     h+='</div></div></article>';
     return h;
-  }).join('');
 }
+
+function disegna(){
+  var base=ordini.filter(function(o){return vista==='attivi'?!o.archiviato:o.archiviato});
+  base.sort(function(a,b){return vista==='attivi'?dataObj(a)-dataObj(b):dataObj(b)-dataObj(a)});
+  var oggi=isoOggi();
+
+  // riepilogo carico (solo tra le consegne attive)
+  var rp=$('riepilogo');
+  if(vista==='attivi'&&base.length){
+    var c=[0,0,0,0,0];base.forEach(function(o){c[sezioneDi(o)]++});
+    var voci=[];
+    if(c[0])voci.push(['0','Scadute',c[0],'scad']);
+    voci.push(['1','Oggi',c[1],'oggi'],['2','Domani',c[2],''],['3','7 giorni',c[3],''],['4','Dopo',c[4],'']);
+    rp.innerHTML=voci.map(function(v){return '<button type="button" class="rp '+v[3]+(filtroPeriodo===v[0]?' sel':'')+'" data-p="'+v[0]+'"><b>'+v[2]+'</b><span>'+v[1]+'</span></button>'}).join('');
+    rp.classList.add('on');
+    Array.prototype.forEach.call(rp.querySelectorAll('.rp'),function(b){
+      b.addEventListener('click',function(){var p=b.getAttribute('data-p');filtroPeriodo=(filtroPeriodo===p?'':p);disegna()});
+    });
+  }else{rp.classList.remove('on');rp.innerHTML='';filtroPeriodo=''}
+
+  // filtri mese + incasso
+  var mesi=[];base.forEach(function(o){var k=meseKey(o);if(mesi.indexOf(k)<0)mesi.push(k)});
+  if(filtroMese!=='tutti'&&mesi.indexOf(filtroMese)<0)filtroMese='tutti';
+  var f='<button class="chip'+(filtroMese==='tutti'?' attivo':'')+'" data-m="tutti">Tutti</button>';
+  mesi.forEach(function(k){f+='<button class="chip'+(filtroMese===k?' attivo':'')+'" data-m="'+k+'">'+meseLabel(k)+'</button>'});
+  f+='<button class="chip incasso'+(soloIncasso?' attivo':'')+'" data-i="1">€ Da incassare</button>';
+  $('filtri').innerHTML=f;
+  Array.prototype.forEach.call($('filtri').querySelectorAll('[data-m]'),function(b){
+    b.addEventListener('click',function(){filtroMese=b.getAttribute('data-m');disegna()});
+  });
+  var bi=$('filtri').querySelector('[data-i]');
+  if(bi)bi.addEventListener('click',function(){soloIncasso=!soloIncasso;disegna()});
+
+  // applico i filtri
+  var q=norm(testoCerca).trim();
+  var vis=base.filter(function(o){
+    if(filtroMese!=='tutti'&&meseKey(o)!==filtroMese)return false;
+    if(soloIncasso&&Math.max((o.prezzo||0)-(o.acconto||0),0)<=0)return false;
+    if(filtroPeriodo!==''&&vista==='attivi'&&String(sezioneDi(o))!==filtroPeriodo)return false;
+    if(q){
+      var pagliaio=norm([o.cliente,o.dettagli,o.allergie,o.tel].join(' '));
+      var ok=q.split(/\s+/).every(function(w){return pagliaio.indexOf(w)>=0});
+      if(!ok)return false;
+    }
+    return true;
+  });
+  var da=vis.reduce(function(s,o){return s+Math.max((o.prezzo||0)-(o.acconto||0),0)},0);
+  var filtrato=!!(q||soloIncasso||filtroPeriodo!==''||filtroMese!=='tutti');
+  $('contatore').textContent=vis.length+(vis.length===1?' ordine':' ordini')+(filtrato?' trovati':'')+(vista==='attivi'&&vis.length?' · da incassare '+euro(da):'');
+  $('cercaX').style.display=testoCerca?'block':'none';
+
+  if(!vis.length){
+    var msg;
+    if(filtrato)msg='Nessun ordine corrisponde.<br>Togli un filtro o cambia la ricerca.';
+    else msg=(vista==='attivi'?'Nessuna consegna in programma.<br>Salva la prima creazione qui sopra.':'Lo storico è ancora vuoto.');
+    $('lista').innerHTML='<div class="vuoto">'+msg+'</div>';
+    return;
+  }
+
+  // nelle consegne attive: raggruppo per periodo; nello storico: elenco semplice
+  if(vista==='attivi'&&!q){
+    var out='',ultimo=-1;
+    vis.forEach(function(o){
+      var sz=sezioneDi(o);
+      if(sz!==ultimo){
+        var n=vis.filter(function(x){return sezioneDi(x)===sz}).length;
+        out+='<div class="sezione'+(sz===0?' rossa':'')+'">'+NOMI_SEZ[sz]+'<small>'+n+(n===1?' ordine':' ordini')+'</small></div>';
+        ultimo=sz;
+      }
+      out+=schedaHtml(o,oggi);
+    });
+    $('lista').innerHTML=out;
+  }else{
+    $('lista').innerHTML=vis.map(function(o){return schedaHtml(o,oggi)}).join('');
+  }
+}
+
+$('cerca').addEventListener('input',function(){testoCerca=this.value;disegna()});
+$('cercaX').addEventListener('click',function(){$('cerca').value='';testoCerca='';disegna();$('cerca').focus()});
 
 /* ---------- AZIONI SULLE SCHEDE ---------- */
 $('lista').addEventListener('click',function(e){
