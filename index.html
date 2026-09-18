@@ -160,6 +160,22 @@ footer{text-align:center;color:var(--testo-soft);font-family:'Playfair Display',
 </head>
 <body>
 
+<div id="loginBox" style="display:none;position:fixed;inset:0;z-index:100;background:var(--crema);overflow:auto">
+  <header><div class="logo">MAVILO.</div><div class="sub">Mavilo Dolce · Atelier Ordini</div></header>
+  <div class="wrap"><section class="card">
+    <h2>Accedi</h2>
+    <p class="lead">Solo per te: gli ordini restano al sicuro online.</p>
+    <label for="lEmail">Email</label>
+    <input type="email" id="lEmail" autocomplete="username" inputmode="email"/>
+    <label for="lPass">Password</label>
+    <input type="password" id="lPass" autocomplete="current-password"/>
+    <button class="btn btn-primario" id="lEntra">Entra</button>
+    <button class="btn btn-secondario" id="lCrea">Prima volta? Crea l'accesso</button>
+    <div class="nota" id="lMsg" style="color:var(--rosso);font-weight:700"></div>
+  </section></div>
+</div>
+<div id="statoRete" style="position:sticky;top:0;z-index:40;display:none;text-align:center;font-weight:700;font-size:.85rem;padding:6px;background:#FFF3D6;color:#6B5410"></div>
+
 <header>
   <div class="logo">MAVILO.</div>
   <div class="sub">Mavilo Dolce · Atelier Ordini</div>
@@ -227,12 +243,13 @@ footer{text-align:center;color:var(--testo-soft);font-family:'Playfair Display',
 <!-- BACKUP -->
 <section class="card">
   <h2 style="font-size:1.2rem">Copia di sicurezza</h2>
-  <p class="lead" style="margin-bottom:0">Gli ordini restano salvati sul telefono. Ogni tanto scarica una copia e conservala su iCloud o WhatsApp.</p>
+  <p class="lead" style="margin-bottom:0">Gli ordini sono salvati online e su questo telefono. Puoi comunque scaricare una copia in più da conservare.</p>
   <div class="backup">
     <button class="btn" id="esporta">⬇ Scarica copia</button>
     <label class="btn" style="cursor:pointer">⬆ Ripristina<input type="file" id="importa" accept="application/json,.json" style="display:none"/></label>
   </div>
   <div class="nota" id="statoStorage"></div>
+  <button class="btn btn-secondario" id="esci">Esci dall'account</button>
 </section>
 
 <footer>Ogni creazione è un'opera d'arte irripetibile.</footer>
@@ -241,37 +258,93 @@ footer{text-align:center;color:var(--testo-soft);font-family:'Playfair Display',
 <div id="lightbox"><button id="chiudiLb" aria-label="Chiudi">×</button><img id="lbImg" alt="Foto ordine"/></div>
 <div id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 (function(){
 'use strict';
-/* ---------- DATABASE (IndexedDB) ---------- */
-var DB_NAME='mavilo-ordini', STORE='ordini', db=null;
+/* ---------- CONFIGURAZIONE ONLINE ---------- */
+var SB_URL='https://ahewfgkxywwpupopgkgs.supabase.co';
+var SB_KEY='sb_publishable_5xoOKbS_k5OPsp9nhn7mGQ_cNzFA2EC';
+var sb=null, utente=null;
+try{sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true}})}catch(e){sb=null}
+
+/* ---------- DATABASE LOCALE (IndexedDB): cache + coda di sincronizzazione ---------- */
+var DB_NAME='mavilo-ordini', STORE='ordini', CODA='coda', db=null;
 function apriDB(){
   return new Promise(function(res,rej){
-    var r=indexedDB.open(DB_NAME,1);
-    r.onupgradeneeded=function(e){e.target.result.createObjectStore(STORE,{keyPath:'id'})};
+    var r=indexedDB.open(DB_NAME,2);
+    r.onupgradeneeded=function(e){
+      var d=e.target.result;
+      if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'});
+      if(!d.objectStoreNames.contains(CODA))d.createObjectStore(CODA,{keyPath:'id'});
+    };
     r.onsuccess=function(e){db=e.target.result;res()};
     r.onerror=function(){rej(r.error)};
   });
 }
-function tutti(){
-  return new Promise(function(res,rej){
-    var q=db.transaction(STORE).objectStore(STORE).getAll();
-    q.onsuccess=function(){res(q.result||[])};q.onerror=function(){rej(q.error)};
-  });
-}
+function idbAll(n){return new Promise(function(res,rej){var q=db.transaction(n).objectStore(n).getAll();q.onsuccess=function(){res(q.result||[])};q.onerror=function(){rej(q.error)}})}
+function idbPut(n,o){return new Promise(function(res,rej){var t=db.transaction(n,'readwrite');t.objectStore(n).put(o);t.oncomplete=res;t.onerror=function(){rej(t.error)}})}
+function idbDel(n,id){return new Promise(function(res,rej){var t=db.transaction(n,'readwrite');t.objectStore(n).delete(id);t.oncomplete=res;t.onerror=function(){rej(t.error)}})}
+function idbClear(n){return new Promise(function(res,rej){var t=db.transaction(n,'readwrite');t.objectStore(n).clear();t.oncomplete=res;t.onerror=function(){rej(t.error)}})}
+
+function tutti(){return idbAll(STORE)}
 function scrivi(o){
-  return new Promise(function(res,rej){
-    var t=db.transaction(STORE,'readwrite');t.objectStore(STORE).put(o);
-    t.oncomplete=res;t.onerror=function(){rej(t.error)};
-  });
+  // salva subito in locale (mai perdere nulla), poi mette in coda per l'invio online
+  return idbPut(STORE,o).then(function(){return idbPut(CODA,{id:o.id,op:'put',ts:Date.now()})}).then(sincronizza);
 }
 function cancella(id){
-  return new Promise(function(res,rej){
-    var t=db.transaction(STORE,'readwrite');t.objectStore(STORE).delete(id);
-    t.oncomplete=res;t.onerror=function(){rej(t.error)};
+  return idbDel(STORE,id).then(function(){return idbPut(CODA,{id:id,op:'del',ts:Date.now()})}).then(sincronizza);
+}
+
+/* ---------- SINCRONIZZAZIONE ---------- */
+var inSync=false;
+function riga(o){return {id:o.id,data:o.data,ora:o.ora||'',cliente:o.cliente,tel:o.tel||'',dettagli:o.dettagli||'',allergie:o.allergie||'',foto:o.foto||'',prezzo:o.prezzo||0,acconto:o.acconto||0,archiviato:!!o.archiviato,creato:o.creato||Date.now()}}
+function sincronizza(){
+  if(!sb||!utente||inSync||!navigator.onLine){aggiornaRete();return Promise.resolve()}
+  inSync=true;
+  return idbAll(CODA).then(function(coda){
+    var chain=Promise.resolve();
+    coda.forEach(function(c){
+      chain=chain.then(function(){
+        if(c.op==='del'){
+          return sb.from('ordini').delete().eq('id',c.id).then(function(r){if(r.error)throw r.error;return idbDel(CODA,c.id)});
+        }
+        return idbAll(STORE).then(function(l){
+          var o=l.filter(function(x){return x.id===c.id})[0];
+          if(!o)return idbDel(CODA,c.id);
+          return sb.from('ordini').upsert(riga(o)).then(function(r){if(r.error)throw r.error;return idbDel(CODA,c.id)});
+        });
+      });
+    });
+    return chain;
+  }).then(function(){
+    return idbAll(CODA);
+  }).then(function(rimasti){
+    if(rimasti.length)return; // non scarico dal server finche ho modifiche locali non inviate
+    return sb.from('ordini').select('*').then(function(r){
+      if(r.error)throw r.error;
+      var remoti=r.data||[];
+      return idbClear(STORE).then(function(){
+        var ch=Promise.resolve();
+        remoti.forEach(function(x){
+          ch=ch.then(function(){return idbPut(STORE,{id:x.id,data:x.data,ora:x.ora,cliente:x.cliente,tel:x.tel,dettagli:x.dettagli,allergie:x.allergie,foto:x.foto,prezzo:Number(x.prezzo),acconto:Number(x.acconto),archiviato:x.archiviato,creato:Number(x.creato)})});
+        });
+        return ch;
+      });
+    });
+  }).then(function(){return carica()}).catch(function(e){console.warn('sync',e)}).then(function(){inSync=false;aggiornaRete()});
+}
+function aggiornaRete(){
+  var el=document.getElementById('statoRete');if(!el||!db)return;
+  idbAll(CODA).then(function(c){
+    if(!navigator.onLine){el.style.display='block';el.textContent='Senza internet — gli ordini sono salvati sul telefono'+(c.length?' ('+c.length+' da inviare)':'')}
+    else if(c.length){el.style.display='block';el.textContent='Invio in corso di '+c.length+' modifiche…'}
+    else{el.style.display='none'}
   });
 }
+window.addEventListener('online',function(){sincronizza()});
+window.addEventListener('offline',aggiornaRete);
+document.addEventListener('visibilitychange',function(){if(!document.hidden)sincronizza()});
 
 /* ---------- STATO ---------- */
 var ordini=[], fotoCorrente='', modId=null, vista='attivi', filtroMese='tutti';
@@ -480,20 +553,68 @@ $('importa').addEventListener('change',function(e){
 
 /* ---------- STORAGE PERSISTENTE ---------- */
 function richiediPersistenza(){
-  if(navigator.storage&&navigator.storage.persist){
-    navigator.storage.persist().then(function(ok){
-      $('statoStorage').textContent=ok?'Memoria protetta: il telefono non cancellerà i dati in automatico.':'Consiglio: aggiungi l\'app alla schermata Home (Condividi › Aggiungi a Home) per proteggere meglio i dati.';
-    });
-  }else{
-    $('statoStorage').textContent='Consiglio: aggiungi l\'app alla schermata Home (Condividi › Aggiungi a Home) per proteggere meglio i dati.';
-  }
+  if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().then(function(ok){
+    $('statoStorage').textContent=ok?'Ordini salvati online e su questo telefono.':'Ordini salvati online. Aggiungi l\'app alla schermata Home per usarla come un\'app.';
+  })}else{$('statoStorage').textContent='Ordini salvati online e su questo telefono.'}
+}
+
+/* ---------- LOGIN ---------- */
+function mostraLogin(msg){$('loginBox').style.display='block';$('lMsg').textContent=msg||''}
+function nascondiLogin(){$('loginBox').style.display='none'}
+function traduci(m){
+  m=(m||'').toLowerCase();
+  if(m.indexOf('invalid login')>=0)return 'Email o password non corretti.';
+  if(m.indexOf('already')>=0)return 'Esiste già un accesso con questa email: usa Entra.';
+  if(m.indexOf('password')>=0&&m.indexOf('6')>=0)return 'La password deve avere almeno 6 caratteri.';
+  if(m.indexOf('email')>=0&&m.indexOf('confirm')>=0)return 'Controlla la tua email e conferma l\'accesso, poi premi Entra.';
+  if(m.indexOf('network')>=0||m.indexOf('fetch')>=0)return 'Nessuna connessione: riprova quando c\'è internet.';
+  return 'Errore: '+m;
+}
+function entra(nuovo){
+  var e=$('lEmail').value.trim(),p=$('lPass').value;
+  if(!e||!p){$('lMsg').textContent='Inserisci email e password.';return}
+  if(!sb){$('lMsg').textContent='Servizio non raggiungibile. Riprova con internet attivo.';return}
+  $('lMsg').textContent='Un attimo…';
+  var f=nuovo?sb.auth.signUp({email:e,password:p}):sb.auth.signInWithPassword({email:e,password:p});
+  f.then(function(r){
+    if(r.error){$('lMsg').textContent=traduci(r.error.message);return}
+    if(!r.data.session){$('lMsg').textContent='Controlla la tua email e conferma l\'accesso, poi premi Entra.';return}
+    utente=r.data.session.user;nascondiLogin();avviaApp();
+  }).catch(function(x){$('lMsg').textContent=traduci(String(x&&x.message||x))});
+}
+$('lEntra').addEventListener('click',function(){entra(false)});
+$('lCrea').addEventListener('click',function(){entra(true)});
+$('lPass').addEventListener('keydown',function(e){if(e.key==='Enter')entra(false)});
+$('esci').addEventListener('click',function(){
+  if(!confirm('Uscire dall\'account? Gli ordini restano salvati online.'))return;
+  idbAll(CODA).then(function(c){
+    if(c.length&&!confirm('Ci sono '+c.length+' modifiche non ancora inviate. Uscendo potrebbero andare perse. Uscire lo stesso?'))return;
+    return sb.auth.signOut().then(function(){return idbClear(STORE)}).then(function(){return idbClear(CODA)}).then(function(){location.reload()});
+  });
+});
+
+function avviaApp(){
+  $('data').value=isoOggi();
+  carica().then(function(){richiediPersistenza();aggiornaRete();sincronizza()});
 }
 
 /* ---------- AVVIO ---------- */
 apriDB().then(function(){
-  $('data').value=isoOggi();
-  return carica();
-}).then(richiediPersistenza).catch(function(){
+  if(!sb){ // libreria non caricata: modalita solo locale
+    $('statoStorage').textContent='Attenzione: modalità solo telefono (nessun collegamento online).';
+    avviaApp();return;
+  }
+  return sb.auth.getSession().then(function(r){
+    var s=r&&r.data&&r.data.session;
+    if(s){utente=s.user;avviaApp()}
+    else if(!navigator.onLine){ // primo avvio senza rete: non si puo accedere
+      mostraLogin('Serve internet per il primo accesso.');
+    }else{mostraLogin('')}
+  }).catch(function(){
+    // rete assente ma sessione salvata localmente: apri comunque
+    mostraLogin('Serve internet per il primo accesso.');
+  });
+}).catch(function(){
   toast('Archivio non disponibile in questa modalità del browser');
 });
 })();
