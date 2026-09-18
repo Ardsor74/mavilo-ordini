@@ -176,6 +176,17 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--oro);box
 .sezione small{font-family:'Lato',sans-serif;font-size:.8rem;color:var(--testo-soft)}
 .sezione.rossa{color:var(--rosso)}
 .chip.incasso{border-color:var(--oro-scuro)}
+.scelta{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.opz{border:1.5px solid var(--sabbia);background:#fff;color:var(--testo);border-radius:12px;min-height:52px;padding:8px 10px;font:inherit;font-weight:700;font-size:.95rem;cursor:pointer}
+.opz.attiva{background:var(--nero);color:var(--oro);border-color:var(--nero)}
+.o-consegna{margin-top:12px;background:#fff;border:1.5px solid var(--sabbia);border-radius:12px;padding:10px 12px}
+.o-consegna small{display:block;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;color:var(--testo-soft);margin-bottom:2px}
+.o-consegna .ind{font-weight:700;word-wrap:break-word}
+.o-consegna .ritiro{font-weight:700}
+.azioni-ind{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.az.nav{background:#1F6FEB;color:#fff}
+.az.copia{background:#fff;color:var(--testo);border:1.5px solid var(--sabbia)}
+.tag.dom{background:#E8F0FE;color:#174EA6;border:1.5px solid #8AB4F8}
 .vuoto{text-align:center;color:var(--testo-soft);padding:30px 10px;font-family:'Playfair Display',serif;font-style:italic;font-size:1.1rem}
 .contatore{color:var(--testo-soft);font-size:.85rem;margin:0 2px 10px}
 
@@ -237,6 +248,16 @@ footer{text-align:center;color:var(--testo-soft);font-family:'Playfair Display',
 
   <label for="tel">Telefono</label>
   <input type="tel" id="tel" placeholder="es. 333 1234567" inputmode="tel" autocomplete="off"/>
+
+  <label>Ritiro o consegna</label>
+  <div class="scelta" id="sceltaConsegna">
+    <button type="button" class="opz attiva" data-tc="ritiro">Ritiro in laboratorio</button>
+    <button type="button" class="opz" data-tc="domicilio">Consegna a domicilio</button>
+  </div>
+  <div id="boxIndirizzo" style="display:none">
+    <label for="indirizzo">Indirizzo di consegna</label>
+    <input type="text" id="indirizzo" placeholder="Via, numero civico, città" autocomplete="street-address"/>
+  </div>
 
   <label for="dettagli">Dettagli del lavoro</label>
   <textarea id="dettagli" placeholder="Persone / porzioni, gusti, farciture, tema, decorazioni…"></textarea>
@@ -340,7 +361,7 @@ function cancella(id){
 
 /* ---------- SINCRONIZZAZIONE ---------- */
 var inSync=false;
-function riga(o){return {id:o.id,data:o.data,ora:o.ora||'',cliente:o.cliente,tel:o.tel||'',dettagli:o.dettagli||'',allergie:o.allergie||'',foto:o.foto||'',prezzo:o.prezzo||0,acconto:o.acconto||0,archiviato:!!o.archiviato,creato:o.creato||Date.now()}}
+function riga(o){return {id:o.id,data:o.data,ora:o.ora||'',cliente:o.cliente,tel:o.tel||'',tipo_consegna:o.tipo_consegna||'ritiro',indirizzo:o.indirizzo||'',dettagli:o.dettagli||'',allergie:o.allergie||'',foto:o.foto||'',prezzo:o.prezzo||0,acconto:o.acconto||0,archiviato:!!o.archiviato,creato:o.creato||Date.now()}}
 function sincronizza(){
   if(!sb||!utente||inSync||!navigator.onLine){aggiornaRete();return Promise.resolve()}
   inSync=true;
@@ -369,7 +390,7 @@ function sincronizza(){
       return idbClear(STORE).then(function(){
         var ch=Promise.resolve();
         remoti.forEach(function(x){
-          ch=ch.then(function(){return idbPut(STORE,{id:x.id,data:x.data,ora:x.ora,cliente:x.cliente,tel:x.tel,dettagli:x.dettagli,allergie:x.allergie,foto:x.foto,prezzo:Number(x.prezzo),acconto:Number(x.acconto),archiviato:x.archiviato,creato:Number(x.creato)})});
+          ch=ch.then(function(){return idbPut(STORE,{id:x.id,data:x.data,ora:x.ora,cliente:x.cliente,tel:x.tel,tipo_consegna:x.tipo_consegna||'ritiro',indirizzo:x.indirizzo||'',dettagli:x.dettagli,allergie:x.allergie,foto:x.foto,prezzo:Number(x.prezzo),acconto:Number(x.acconto),archiviato:x.archiviato,creato:Number(x.creato)})});
         });
         return ch;
       });
@@ -442,8 +463,22 @@ $('prezzo').addEventListener('input',aggiornaSaldo);
 $('acconto').addEventListener('input',aggiornaSaldo);
 
 /* ---------- FORM ---------- */
+var tipoConsegna='ritiro';
+function impostaConsegna(t){
+  tipoConsegna=(t==='domicilio'?'domicilio':'ritiro');
+  Array.prototype.forEach.call(document.querySelectorAll('#sceltaConsegna .opz'),function(b){
+    b.classList.toggle('attiva',b.getAttribute('data-tc')===tipoConsegna);
+  });
+  $('boxIndirizzo').style.display=(tipoConsegna==='domicilio'?'block':'none');
+}
+Array.prototype.forEach.call(document.querySelectorAll('#sceltaConsegna .opz'),function(b){
+  b.addEventListener('click',function(){
+    impostaConsegna(b.getAttribute('data-tc'));
+    if(tipoConsegna==='domicilio')setTimeout(function(){$('indirizzo').focus()},50);
+  });
+});
 function svuotaForm(){
-  ['data','ora','cliente','tel','dettagli','allergie','prezzo','acconto'].forEach(function(i){$(i).value=''});
+  ['data','ora','cliente','tel','indirizzo','dettagli','allergie','prezzo','acconto'].forEach(function(i){$(i).value=''});impostaConsegna('ritiro');
   fotoCorrente='';mostraAnteprima();aggiornaSaldo();modId=null;
   $('formTitolo').textContent='Nuova Creazione';
   $('modBanner').style.display='none';$('annulla').style.display='none';$('salva').textContent='Salva ordine';
@@ -454,11 +489,13 @@ $('salva').addEventListener('click',function(){
   var data=$('data').value,cliente=$('cliente').value.trim();
   if(!data){toast('Inserisci la data di consegna');$('data').focus();return}
   if(!cliente){toast('Inserisci il nome del cliente');$('cliente').focus();return}
+  if(tipoConsegna==='domicilio'&&!$('indirizzo').value.trim()){toast('Inserisci l\'indirizzo di consegna');$('indirizzo').focus();return}
   var esistente=modId?ordini.filter(function(x){return x.id===modId})[0]:null;
   var o={
     id:modId||('o'+Date.now()),
     data:data,ora:$('ora').value||'',
     cliente:cliente,tel:$('tel').value.trim(),
+    tipo_consegna:tipoConsegna,indirizzo:(tipoConsegna==='domicilio'?$('indirizzo').value.trim():''),
     dettagli:$('dettagli').value.trim(),allergie:$('allergie').value.trim(),
     foto:fotoCorrente,
     prezzo:parseFloat($('prezzo').value)||0,acconto:parseFloat($('acconto').value)||0,
@@ -511,6 +548,7 @@ function schedaHtml(o,oggi){
     var et='';
     if(vista==='attivi'){if(o.data===oggi)et+='<span class="tag oggi">OGGI</span>';else if(passata)et+='<span class="tag scad">SCADUTA</span>'}
     if(o.allergie)et+='<span class="tag all">⚠ Allergie</span>';
+    if(o.tipo_consegna==='domicilio')et+='<span class="tag dom">🚗 A domicilio</span>';
     if(o.prezzo||o.acconto)et+=saldo>0?'<span class="tag da">Da incassare '+euro(saldo)+'</span>':'<span class="tag ok">Saldato ✓</span>';
     if(et)h+='<div class="o-etichette">'+et+'</div>';
     h+='</div><span class="freccia" aria-hidden="true">▾</span></button>';
@@ -519,6 +557,12 @@ function schedaHtml(o,oggi){
       h+='<div class="o-riga">';
       if(o.foto)h+='<img class="o-miniatura" src="'+o.foto+'" alt="Bozza" data-zoom="1"/>';
       h+='<div class="o-dettagli">'+(o.dettagli?esc(o.dettagli):'<em style="color:var(--testo-soft)">Nessun dettaglio</em>')+'</div></div>';
+    }
+    if(o.tipo_consegna==='domicilio'&&o.indirizzo){
+      h+='<div class="o-consegna"><small>Consegna a domicilio</small><div class="ind">'+esc(o.indirizzo)+'</div></div>';
+      h+='<div class="azioni-ind"><a class="az nav" href="https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(o.indirizzo)+'" target="_blank" rel="noopener">🧭 Naviga</a><button type="button" class="az copia" data-a="copia-ind">📋 Copia indirizzo</button></div>';
+    }else{
+      h+='<div class="o-consegna"><small>Ritiro</small><div class="ritiro">In laboratorio</div></div>';
     }
     if(o.allergie)h+='<div class="allerta"><small>⚠ Allergie / Intolleranze</small>'+esc(o.allergie)+'</div>';
     if(o.prezzo||o.acconto){
@@ -574,7 +618,7 @@ function disegna(){
     if(soloIncasso&&Math.max((o.prezzo||0)-(o.acconto||0),0)<=0)return false;
     if(filtroPeriodo!==''&&vista==='attivi'&&String(sezioneDi(o))!==filtroPeriodo)return false;
     if(q){
-      var pagliaio=norm([o.cliente,o.dettagli,o.allergie,o.tel].join(' '));
+      var pagliaio=norm([o.cliente,o.dettagli,o.allergie,o.tel,o.indirizzo].join(' '));
       var ok=q.split(/\s+/).every(function(w){return pagliaio.indexOf(w)>=0});
       if(!ok)return false;
     }
@@ -632,6 +676,13 @@ $('lista').addEventListener('click',function(e){
   var id=b.closest('.ordine').getAttribute('data-id');
   var o=ordini.filter(function(x){return x.id===id})[0];if(!o)return;
   var a=b.getAttribute('data-a');
+  if(a==='copia-ind'){
+    var testo=o.indirizzo||'';
+    function fatto(){toast('Indirizzo copiato')}
+    function vecchio(){var x=document.createElement('textarea');x.value=testo;document.body.appendChild(x);x.select();try{document.execCommand('copy')}catch(err){}x.remove();fatto()}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(testo).then(fatto,vecchio)}else{vecchio()}
+    return;
+  }
   if(a==='archivia'||a==='riapri'){
     o.archiviato=(a==='archivia');
     scrivi(o).then(carica).then(function(){toast(a==='archivia'?'Spostata nello storico':'Rimessa tra le consegne')});
@@ -641,7 +692,7 @@ $('lista').addEventListener('click',function(e){
     }
   }else if(a==='modifica'){
     modId=o.id;
-    $('data').value=o.data;$('ora').value=o.ora||'';$('cliente').value=o.cliente;$('tel').value=o.tel||'';
+    $('data').value=o.data;$('ora').value=o.ora||'';$('cliente').value=o.cliente;$('tel').value=o.tel||'';impostaConsegna(o.tipo_consegna||'ritiro');$('indirizzo').value=o.indirizzo||'';
     $('dettagli').value=o.dettagli||'';$('allergie').value=o.allergie||'';
     $('prezzo').value=o.prezzo||'';$('acconto').value=o.acconto||'';
     fotoCorrente=o.foto||'';mostraAnteprima();aggiornaSaldo();
