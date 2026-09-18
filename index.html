@@ -245,13 +245,13 @@ footer{text-align:center;color:var(--testo-soft);font-family:'Playfair Display',
   <header><div class="logo">MAVILO.</div><div class="sub">Mavilo Dolce · Atelier Ordini</div></header>
   <div class="wrap"><section class="card">
     <h2>Accedi</h2>
-    <p class="lead">Solo per te: gli ordini restano al sicuro online.</p>
+    <p class="lead">Inserisci email e password per aprire gli ordini.</p>
     <label for="lEmail">Email</label>
     <input type="email" id="lEmail" autocomplete="username" inputmode="email"/>
     <label for="lPass">Password</label>
     <input type="password" id="lPass" autocomplete="current-password"/>
     <button class="btn btn-primario" id="lEntra">Entra</button>
-    <button class="btn btn-secondario" id="lCrea">Prima volta? Crea l'accesso</button>
+    <button class="btn btn-secondario" id="lCrea" style="display:none">Prima volta? Crea l'accesso</button>
     <div class="nota" id="lMsg" style="color:var(--rosso);font-weight:700"></div>
   </section></div>
 </div>
@@ -942,6 +942,7 @@ function nascondiLogin(){$('loginBox').style.display='none'}
 function traduci(m){
   m=(m||'').toLowerCase();
   if(m.indexOf('invalid login')>=0)return 'Email o password non corretti.';
+  if(m.indexOf('database error')>=0||m.indexOf('registrazioni chiuse')>=0||m.indexOf('signup')>=0)return 'Le nuove registrazioni sono chiuse. Usa l\'accesso già creato.';
   if(m.indexOf('already')>=0)return 'Esiste già un accesso con questa email: usa Entra.';
   if(m.indexOf('password')>=0&&m.indexOf('6')>=0)return 'La password deve avere almeno 6 caratteri.';
   if(m.indexOf('email')>=0&&m.indexOf('confirm')>=0)return 'Controlla la tua email e conferma l\'accesso, poi premi Entra.';
