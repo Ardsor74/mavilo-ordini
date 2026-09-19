@@ -220,6 +220,25 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--oro);box
 .inc-riga .v{font-weight:700;white-space:nowrap;text-align:right}
 .inc-riga .v.da{color:var(--rosso)}
 .inc-riga .v.ok{color:#1E6B34}
+
+/* FOTO MULTIPLE */
+.foto-strip{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.fs{position:relative;width:72px;height:72px;border-radius:12px;overflow:hidden;border:1.5px solid var(--sabbia);background:#fff}
+.fs img,.fs .ph{width:100%;height:100%;object-fit:cover;display:flex;align-items:center;justify-content:center;font-size:1.5rem}
+.fs button{position:absolute;top:2px;right:2px;width:28px;height:28px;border-radius:50%;border:0;background:rgba(26,26,26,.78);color:#fff;font-size:16px;line-height:1;cursor:pointer}
+.btn-foto.piena{display:none}
+.nota-foto{font-size:.8rem;color:var(--testo-soft);margin-top:6px}
+.o-foto{display:flex;gap:8px;overflow-x:auto;margin-top:12px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.o-thumb{flex:0 0 auto;width:84px;height:84px;border-radius:12px;object-fit:cover;border:1.5px solid var(--sabbia);background:#fff;cursor:zoom-in;display:flex;align-items:center;justify-content:center;font-size:1.6rem}
+.o-addfoto{flex:0 0 auto;width:84px;height:84px;border-radius:12px;border:1.5px dashed var(--oro-scuro);background:#fff;color:var(--oro-scuro);font:inherit;font-weight:700;font-size:.8rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer}
+.o-addfoto span{font-size:1.4rem;line-height:1}
+.tag.foto{background:#fff;color:var(--testo-soft);border:1.5px solid var(--sabbia)}
+#lightbox #lbPrec,#lightbox #lbSucc{top:50%;transform:translateY(-50%);width:52px;height:52px;background:rgba(212,175,55,.92);display:none;align-items:center;justify-content:center}
+#lightbox #lbPrec{left:8px;right:auto}
+#lightbox #lbSucc{right:8px}
+#lbBarra{position:absolute;left:0;right:0;bottom:calc(14px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:12px;align-items:center}
+#lbConta{color:#fff;font-weight:700}
+#lightbox #lbElimina{position:static;width:auto;height:auto;border-radius:12px;padding:12px 16px;font-size:.95rem;background:#fff;color:var(--rosso)}
 .vuoto{text-align:center;color:var(--testo-soft);padding:30px 10px;font-family:'Playfair Display',serif;font-style:italic;font-size:1.1rem}
 .contatore{color:var(--testo-soft);font-size:.85rem;margin:0 2px 10px}
 
@@ -302,12 +321,11 @@ footer{text-align:center;color:var(--testo-soft);font-family:'Playfair Display',
   </div>
 
   <label>Foto bozza / ispirazione</label>
-  <div class="foto-box">
-    <label class="btn-foto">📷 Scatta o scegli foto
-      <input type="file" id="foto" accept="image/*"/>
-    </label>
-    <div class="anteprima" id="anteprima"><img id="anteprimaImg" alt="Anteprima"/><button type="button" id="rimuoviFoto" aria-label="Rimuovi foto">×</button></div>
-  </div>
+  <div class="foto-strip" id="fotoStrip"></div>
+  <label class="btn-foto" id="btnFoto">📷 Aggiungi foto
+    <input type="file" id="foto" accept="image/*" multiple/>
+  </label>
+  <div class="nota-foto" id="fotoNota"></div>
 
   <label>Conteggio economico</label>
   <div class="riga">
@@ -365,7 +383,14 @@ footer{text-align:center;color:var(--testo-soft);font-family:'Playfair Display',
 <footer>Ogni creazione è un'opera d'arte irripetibile.</footer>
 </main>
 
-<div id="lightbox"><button id="chiudiLb" aria-label="Chiudi">×</button><img id="lbImg" alt="Foto ordine"/></div>
+<div id="lightbox">
+  <button id="chiudiLb" aria-label="Chiudi">×</button>
+  <img id="lbImg" alt="Foto ordine"/>
+  <button id="lbPrec" aria-label="Foto precedente">‹</button>
+  <button id="lbSucc" aria-label="Foto successiva">›</button>
+  <div id="lbBarra"><span id="lbConta"></span><button type="button" id="lbElimina">🗑 Elimina foto</button></div>
+</div>
+<input type="file" id="fotoAgg" accept="image/*" multiple style="display:none"/>
 <div id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -379,70 +404,205 @@ var sb=null, utente=null;
 try{sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true}})}catch(e){sb=null}
 
 /* ---------- DATABASE LOCALE (IndexedDB): cache + coda di sincronizzazione ---------- */
-var DB_NAME='mavilo-ordini', STORE='ordini', CODA='coda', db=null;
+var DB_NAME='mavilo-ordini', STORE='ordini', CODA='coda', FOTO='foto', FIMG='fotoimg', MAX_FOTO=6, db=null;
 function apriDB(){
   return new Promise(function(res,rej){
-    var r=indexedDB.open(DB_NAME,2);
+    var r=indexedDB.open(DB_NAME,3);
     r.onupgradeneeded=function(e){
       var d=e.target.result;
       if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'});
       if(!d.objectStoreNames.contains(CODA))d.createObjectStore(CODA,{keyPath:'id'});
+      if(!d.objectStoreNames.contains(FOTO))d.createObjectStore(FOTO,{keyPath:'id'});
+      if(!d.objectStoreNames.contains(FIMG))d.createObjectStore(FIMG,{keyPath:'id'});
     };
     r.onsuccess=function(e){db=e.target.result;res()};
     r.onerror=function(){rej(r.error)};
   });
 }
 function idbAll(n){return new Promise(function(res,rej){var q=db.transaction(n).objectStore(n).getAll();q.onsuccess=function(){res(q.result||[])};q.onerror=function(){rej(q.error)}})}
+function idbGet(n,id){return new Promise(function(res,rej){var q=db.transaction(n).objectStore(n).get(id);q.onsuccess=function(){res(q.result||null)};q.onerror=function(){rej(q.error)}})}
 function idbPut(n,o){return new Promise(function(res,rej){var t=db.transaction(n,'readwrite');t.objectStore(n).put(o);t.oncomplete=res;t.onerror=function(){rej(t.error)}})}
 function idbDel(n,id){return new Promise(function(res,rej){var t=db.transaction(n,'readwrite');t.objectStore(n).delete(id);t.oncomplete=res;t.onerror=function(){rej(t.error)}})}
 function idbClear(n){return new Promise(function(res,rej){var t=db.transaction(n,'readwrite');t.objectStore(n).clear();t.oncomplete=res;t.onerror=function(){rej(t.error)}})}
 
+function idbSostituisciOrdini(items){
+  // in un'unica operazione: se nel frattempo e arrivata una modifica locale non si tocca niente
+  return new Promise(function(res,rej){
+    var t=db.transaction([STORE,CODA],'readwrite');
+    var q=t.objectStore(CODA).count(),fatto=false;
+    q.onsuccess=function(){
+      if(q.result>0)return;
+      var st=t.objectStore(STORE);st.clear();items.forEach(function(x){st.put(x)});fatto=true;
+    };
+    t.oncomplete=function(){res(fatto)};
+    t.onerror=function(){rej(t.error)};
+  });
+}
 function tutti(){return idbAll(STORE)}
+function seq(lista,fn){return lista.reduce(function(p,x){return p.then(function(){return fn(x)})},Promise.resolve())}
+function scriviLocale(o){
+  return idbPut(STORE,o).then(function(){return idbPut(CODA,{id:o.id,op:'put',ts:Date.now()})});
+}
 function scrivi(o){
   // salva subito in locale (mai perdere nulla), poi mette in coda per l'invio online
-  return idbPut(STORE,o).then(function(){return idbPut(CODA,{id:o.id,op:'put',ts:Date.now()})}).then(sincronizza);
+  return scriviLocale(o).then(sincronizza);
 }
 function cancella(id){
-  return idbDel(STORE,id).then(function(){return idbPut(CODA,{id:id,op:'del',ts:Date.now()})}).then(sincronizza);
+  // via anche le foto locali di quest'ordine (sul server spariscono da sole con l'ordine)
+  return idbAll(FOTO).then(function(l){
+    return seq(l.filter(function(f){return f.ordine_id===id}),function(f){
+      return idbDel(FOTO,f.id).then(function(){return idbDel(FIMG,f.id)}).then(function(){return idbDel(CODA,'f:'+f.id)});
+    });
+  }).then(function(){return idbDel(STORE,id)}).then(function(){return idbPut(CODA,{id:id,op:'del',ts:Date.now()})}).then(sincronizza);
+}
+function fotoAggiungiLocale(ordineId,items){
+  var base=Date.now();
+  return seq(items.map(function(it,i){return {id:it.id,img:it.img,thumb:it.thumb,n:i}}),function(it){
+    var meta={id:it.id,ordine_id:ordineId,creato:base+it.n,thumb:it.thumb,pending:true};
+    return idbPut(FOTO,meta).then(function(){return idbPut(FIMG,{id:it.id,img:it.img})}).then(function(){return idbPut(CODA,{id:'f:'+it.id,op:'fput',ts:Date.now()})});
+  });
+}
+function fotoRimuoviLocale(fotoId){
+  return idbDel(FOTO,fotoId).then(function(){return idbDel(FIMG,fotoId)}).then(function(){return idbPut(CODA,{id:'f:'+fotoId,op:'fdel',ts:Date.now()})});
 }
 
 /* ---------- SINCRONIZZAZIONE ---------- */
-var inSync=false;
+var inSync=false, sincDopo=false, ritentaT=null;
 function riga(o){return {id:o.id,data:o.data,ora:o.ora||'',cliente:o.cliente,tel:o.tel||'',tipo_consegna:o.tipo_consegna||'ritiro',indirizzo:o.indirizzo||'',dettagli:o.dettagli||'',allergie:o.allergie||'',foto:o.foto||'',prezzo:o.prezzo||0,acconto:o.acconto||0,archiviato:!!o.archiviato,pagamenti:o.pagamenti||[],creato:o.creato||Date.now()}}
-function sincronizza(){
-  if(!sb||!utente||inSync||!navigator.onLine){aggiornaRete();return Promise.resolve()}
-  inSync=true;
-  return idbAll(CODA).then(function(coda){
-    var chain=Promise.resolve();
-    coda.forEach(function(c){
-      chain=chain.then(function(){
-        if(c.op==='del'){
-          return sb.from('ordini').delete().eq('id',c.id).then(function(r){if(r.error)throw r.error;return idbDel(CODA,c.id)});
+
+function inviaOrdine(c){
+  return idbAll(STORE).then(function(l){
+    var o=l.filter(function(x){return x.id===c.id})[0];
+    if(!o)return idbDel(CODA,c.id);
+    return sb.from('ordini').upsert(riga(o)).then(function(r){if(r.error)throw r.error;return idbDel(CODA,c.id)});
+  });
+}
+function inviaFoto(c){
+  var fid=c.id.slice(2);
+  return Promise.all([idbGet(FOTO,fid),idbGet(FIMG,fid),idbAll(STORE)]).then(function(r){
+    var m=r[0],im=r[1],ord=r[2];
+    if(!m||!im||!ord.some(function(x){return x.id===m.ordine_id}))return idbDel(CODA,c.id);
+    return sb.from('foto_ordini').upsert({id:m.id,ordine_id:m.ordine_id,thumb:m.thumb,img:im.img,creato:m.creato}).then(function(x){
+      if(x.error){
+        if(/limite/i.test(x.error.message||'')){
+          return idbDel(CODA,c.id).then(function(){return idbDel(FOTO,fid)}).then(function(){return idbDel(FIMG,fid)}).then(function(){toast('Limite di '+MAX_FOTO+' foto per ordine: una foto non è stata salvata')});
         }
-        return idbAll(STORE).then(function(l){
-          var o=l.filter(function(x){return x.id===c.id})[0];
-          if(!o)return idbDel(CODA,c.id);
-          return sb.from('ordini').upsert(riga(o)).then(function(r){if(r.error)throw r.error;return idbDel(CODA,c.id)});
+        throw x.error;
+      }
+      // foto arrivata: segno che non e piu in attesa (se nel frattempo non e stata tolta)
+      return idbGet(FOTO,fid).then(function(m2){if(m2){m2.pending=false;return idbPut(FOTO,m2)}}).then(function(){
+        // se veniva dalla vecchia foto unica dell'ordine, ora posso svuotare quel campo
+        if(fid.indexOf('leg-')!==0)return;
+        return idbGet(STORE,m.ordine_id).then(function(o){
+          if(!o||!o.foto)return;
+          o.foto='';
+          return sb.from('ordini').upsert(riga(o)).then(function(y){if(y.error)throw y.error;return idbPut(STORE,o)});
+        });
+      }).then(function(){return idbGet(CODA,c.id)}).then(function(q){if(q&&q.op==='fput')return idbDel(CODA,c.id)});
+    });
+  });
+}
+function eliminaFotoRemota(c){
+  var fid=c.id.slice(2);
+  return sb.from('foto_ordini').delete().eq('id',fid).then(function(r){
+    if(r.error)throw r.error;
+    return idbGet(CODA,c.id).then(function(q){if(q&&q.op==='fdel')return idbDel(CODA,c.id)});
+  });
+}
+function eliminaOrdineRemoto(c){
+  return sb.from('ordini').delete().eq('id',c.id).then(function(r){if(r.error)throw r.error;return idbDel(CODA,c.id)});
+}
+function svuotaCoda(){
+  return idbAll(CODA).then(function(coda){
+    coda.sort(function(a,b){return a.ts-b.ts});
+    var isF=function(c){return c.id.indexOf('f:')===0};
+    return seq(coda.filter(function(c){return !isF(c)&&c.op==='put'}),inviaOrdine)
+      .then(function(){return seq(coda.filter(function(c){return c.op==='fput'}),inviaFoto)})
+      .then(function(){return seq(coda.filter(function(c){return c.op==='fdel'}),eliminaFotoRemota)})
+      .then(function(){return seq(coda.filter(function(c){return !isF(c)&&c.op==='del'}),eliminaOrdineRemoto)});
+  });
+}
+function scaricaOrdini(){
+  return sb.from('ordini').select('*').then(function(r){
+    if(r.error)throw r.error;
+    var items=(r.data||[]).map(function(x){return {id:x.id,data:x.data,ora:x.ora,cliente:x.cliente,tel:x.tel,tipo_consegna:x.tipo_consegna||'ritiro',indirizzo:x.indirizzo||'',dettagli:x.dettagli,allergie:x.allergie,foto:x.foto||'',prezzo:Number(x.prezzo),acconto:Number(x.acconto),archiviato:x.archiviato,pagamenti:Array.isArray(x.pagamenti)?x.pagamenti:[],creato:Number(x.creato)}});
+    return idbSostituisciOrdini(items);
+  });
+}
+function scaricaFoto(){
+  // scarico solo l'elenco leggero e poi le miniature che mancano su questo telefono
+  return sb.from('foto_ordini').select('id,ordine_id,creato').then(function(r){
+    if(r.error)throw r.error;
+    var remote=r.data||[];
+    return idbAll(FOTO).then(function(locali){
+      var perId={},idRemoti={};
+      locali.forEach(function(f){perId[f.id]=f});
+      remote.forEach(function(x){idRemoti[x.id]=1});
+      var sparite=locali.filter(function(f){return !idRemoti[f.id]&&!f.pending});
+      var daScaricare=remote.filter(function(x){return !perId[x.id]||!perId[x.id].thumb});
+      return seq(sparite,function(f){return idbDel(FOTO,f.id).then(function(){return idbDel(FIMG,f.id)})}).then(function(){
+        var lotti=[];for(var i=0;i<daScaricare.length;i+=10)lotti.push(daScaricare.slice(i,i+10));
+        return seq(lotti,function(lotto){
+          return sb.from('foto_ordini').select('id,thumb').in('id',lotto.map(function(x){return x.id})).then(function(t){
+            if(t.error)throw t.error;
+            var mappa={};(t.data||[]).forEach(function(y){mappa[y.id]=y.thumb});
+            return seq(lotto,function(x){return idbPut(FOTO,{id:x.id,ordine_id:x.ordine_id,creato:Number(x.creato),thumb:mappa[x.id]||'',pending:false})});
+          });
         });
       });
     });
-    return chain;
+  });
+}
+function creaMiniatura(dataUrl){
+  return new Promise(function(res,rej){
+    var img=new Image();img.onerror=rej;
+    img.onload=function(){try{res(ridimensiona(img,240,0.6))}catch(e){rej(e)}};
+    img.src=dataUrl;
+  });
+}
+function migraLegacy(){
+  // le vecchie foto uniche (dentro l'ordine) diventano foto normali; l'originale resta finche la nuova non e sul server
+  return idbAll(STORE).then(function(l){
+    var vecchie=l.filter(function(o){return o.foto&&String(o.foto).indexOf('data:image')===0});
+    var nuove=0;
+    return seq(vecchie,function(o){
+      var fid='leg-'+o.id;
+      return idbGet(FOTO,fid).then(function(esiste){
+        if(esiste)return;
+        return creaMiniatura(o.foto).then(function(th){
+          return idbPut(FOTO,{id:fid,ordine_id:o.id,creato:(o.creato||Date.now()),thumb:th,pending:true})
+            .then(function(){return idbPut(FIMG,{id:fid,img:o.foto})})
+            .then(function(){return idbPut(CODA,{id:'f:'+fid,op:'fput',ts:Date.now()})})
+            .then(function(){nuove++});
+        });
+      }).catch(function(){});
+    }).then(function(){return nuove});
+  });
+}
+function ciclo(n){
+  return svuotaCoda().then(function(){return idbAll(CODA)}).then(function(rimasti){
+    if(rimasti.length)return;
+    return scaricaOrdini().then(function(ok){
+      if(!ok)return;
+      return scaricaFoto().then(migraLegacy).then(function(nuove){
+        if(nuove>0&&n<2)return ciclo(n+1);
+      });
+    });
+  }).then(function(){return carica()});
+}
+function sincronizza(){
+  if(!sb||!utente||!navigator.onLine){aggiornaRete();return Promise.resolve()}
+  if(inSync){sincDopo=true;return Promise.resolve()}
+  inSync=true;sincDopo=false;
+  return ciclo(0).then(function(){
+    clearTimeout(ritentaT);ritentaT=null;
+  }).catch(function(e){
+    console.warn('sync',e);
+    if(!ritentaT)ritentaT=setTimeout(function(){ritentaT=null;sincronizza()},20000);
   }).then(function(){
-    return idbAll(CODA);
-  }).then(function(rimasti){
-    if(rimasti.length)return; // non scarico dal server finche ho modifiche locali non inviate
-    return sb.from('ordini').select('*').then(function(r){
-      if(r.error)throw r.error;
-      var remoti=r.data||[];
-      return idbClear(STORE).then(function(){
-        var ch=Promise.resolve();
-        remoti.forEach(function(x){
-          ch=ch.then(function(){return idbPut(STORE,{id:x.id,data:x.data,ora:x.ora,cliente:x.cliente,tel:x.tel,tipo_consegna:x.tipo_consegna||'ritiro',indirizzo:x.indirizzo||'',dettagli:x.dettagli,allergie:x.allergie,foto:x.foto,prezzo:Number(x.prezzo),acconto:Number(x.acconto),archiviato:x.archiviato,pagamenti:Array.isArray(x.pagamenti)?x.pagamenti:[],creato:Number(x.creato)})});
-        });
-        return ch;
-      });
-    });
-  }).then(function(){return carica()}).catch(function(e){console.warn('sync',e)}).then(function(){inSync=false;aggiornaRete()});
+    inSync=false;aggiornaRete();
+    if(sincDopo){sincDopo=false;return sincronizza()}
+  });
 }
 function aggiornaRete(){
   var el=document.getElementById('statoRete');if(!el||!db)return;
@@ -457,7 +617,7 @@ window.addEventListener('offline',aggiornaRete);
 document.addEventListener('visibilitychange',function(){if(!document.hidden)sincronizza()});
 
 /* ---------- STATO ---------- */
-var ordini=[], fotoCorrente='', modId=null, vista='attivi', filtroMese='tutti', testoCerca='', soloIncasso=false, filtroPeriodo='', apertoId='';
+var ordini=[], fotoMem=[], fotoForm=[], fotoAggOrdine='', modId=null, vista='attivi', filtroMese='tutti', testoCerca='', soloIncasso=false, filtroPeriodo='', apertoId='';
 var $=function(id){return document.getElementById(id)};
 var MESI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
 var GIORNI=['domenica','lunedì','martedì','mercoledì','giovedì','venerdì','sabato'];
@@ -470,36 +630,59 @@ function isoOggi(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth
 function meseKey(o){return o.data.slice(0,7)}
 function meseLabel(k){var p=k.split('-');return MESI[+p[1]-1].charAt(0).toUpperCase()+MESI[+p[1]-1].slice(1)+' '+p[0]}
 
-/* ---------- FOTO: compressione ---------- */
-function comprimi(file){
+/* ---------- FOTO ---------- */
+function ridimensiona(img,max,q){
+  var w=img.width,h=img.height;
+  if(w>h&&w>max){h=Math.round(h*max/w);w=max}else if(h>=w&&h>max){w=Math.round(w*max/h);h=max}
+  var c=document.createElement('canvas');c.width=w;c.height=h;
+  c.getContext('2d').drawImage(img,0,0,w,h);
+  return c.toDataURL('image/jpeg',q);
+}
+function elaboraFoto(file){
   return new Promise(function(res,rej){
-    var fr=new FileReader();
-    fr.onerror=rej;
+    var fr=new FileReader();fr.onerror=rej;
     fr.onload=function(){
-      var img=new Image();
-      img.onerror=rej;
-      img.onload=function(){
-        var max=1280,w=img.width,h=img.height;
-        if(w>h&&w>max){h=Math.round(h*max/w);w=max}else if(h>=w&&h>max){w=Math.round(w*max/h);h=max}
-        var c=document.createElement('canvas');c.width=w;c.height=h;
-        c.getContext('2d').drawImage(img,0,0,w,h);
-        res(c.toDataURL('image/jpeg',0.82));
-      };
+      var img=new Image();img.onerror=rej;
+      img.onload=function(){try{res({img:ridimensiona(img,1100,0.72),thumb:ridimensiona(img,240,0.6)})}catch(e){rej(e)}};
       img.src=fr.result;
     };
     fr.readAsDataURL(file);
   });
 }
-$('foto').addEventListener('change',function(e){
-  var f=e.target.files[0];if(!f)return;
-  comprimi(f).then(function(d){fotoCorrente=d;mostraAnteprima()}).catch(function(){toast('Foto non leggibile')});
-  e.target.value='';
-});
-function mostraAnteprima(){
-  if(fotoCorrente){$('anteprimaImg').src=fotoCorrente;$('anteprima').style.display='block'}
-  else{$('anteprima').style.display='none';$('anteprimaImg').removeAttribute('src')}
+function nuovoIdFoto(){return 'f'+Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function elaboraTutte(files,posti){
+  var lista=files.slice(0,posti),out=[];
+  return seq(lista,function(f){
+    return elaboraFoto(f).then(function(x){out.push({id:nuovoIdFoto(),img:x.img,thumb:x.thumb})}).catch(function(){});
+  }).then(function(){return {items:out,scartate:files.length-lista.length,errori:lista.length-out.length}});
 }
-$('rimuoviFoto').addEventListener('click',function(){fotoCorrente='';mostraAnteprima()});
+function disegnaFotoForm(){
+  var att=fotoForm.filter(function(f){return !f.rimossa});
+  $('fotoStrip').innerHTML=att.map(function(f){
+    return '<div class="fs">'+(f.thumb?'<img src="'+f.thumb+'" alt="Foto"/>':'<div class="ph">📷</div>')+'<button type="button" data-rf="'+f.id+'" aria-label="Rimuovi foto">×</button></div>';
+  }).join('');
+  $('fotoNota').textContent=att.length?att.length+' di '+MAX_FOTO+' foto':'Puoi aggiungere fino a '+MAX_FOTO+' foto.';
+  $('btnFoto').classList.toggle('piena',att.length>=MAX_FOTO);
+}
+$('fotoStrip').addEventListener('click',function(e){
+  var b=e.target.closest('[data-rf]');if(!b)return;
+  var id=b.getAttribute('data-rf');
+  fotoForm.forEach(function(f){if(f.id===id)f.rimossa=true});
+  disegnaFotoForm();
+});
+$('foto').addEventListener('change',function(e){
+  var files=Array.prototype.slice.call(e.target.files||[]);e.target.value='';
+  if(!files.length)return;
+  var posti=MAX_FOTO-fotoForm.filter(function(f){return !f.rimossa}).length;
+  if(posti<=0){toast('Massimo '+MAX_FOTO+' foto per ordine');return}
+  $('fotoNota').textContent='Preparo le foto…';
+  elaboraTutte(files,posti).then(function(r){
+    r.items.forEach(function(it){fotoForm.push({id:it.id,thumb:it.thumb,img:it.img,nuova:true,rimossa:false})});
+    disegnaFotoForm();
+    if(r.scartate>0)toast('Massimo '+MAX_FOTO+' foto: ne ho aggiunte '+r.items.length);
+    else if(r.errori>0)toast('Una foto non era leggibile');
+  });
+});
 
 /* ---------- SALDO LIVE ---------- */
 function leggiNum(v){
@@ -531,7 +714,7 @@ Array.prototype.forEach.call(document.querySelectorAll('#sceltaConsegna .opz'),f
 });
 function svuotaForm(){
   ['data','ora','cliente','tel','indirizzo','dettagli','allergie','prezzo','acconto'].forEach(function(i){$(i).value=''});impostaConsegna('ritiro');
-  fotoCorrente='';mostraAnteprima();aggiornaSaldo();modId=null;
+  fotoForm=[];disegnaFotoForm();aggiornaSaldo();modId=null;
   $('formTitolo').textContent='Nuova Creazione';
   $('modBanner').style.display='none';$('annulla').style.display='none';$('salva').textContent='Salva ordine';
 }
@@ -554,20 +737,26 @@ $('salva').addEventListener('click',function(){
     cliente:cliente,tel:$('tel').value.trim(),
     tipo_consegna:tipoConsegna,indirizzo:(tipoConsegna==='domicilio'?$('indirizzo').value.trim():''),
     dettagli:$('dettagli').value.trim(),allergie:$('allergie').value.trim(),
-    foto:fotoCorrente,
+    foto:esistente?(esistente.foto||''):'',
     prezzo:r2(leggiNum($('prezzo').value)),acconto:accNuovo,pagamenti:pag,
     archiviato:esistente?!!esistente.archiviato:false,
     creato:esistente?esistente.creato:Date.now()
   };
-  scrivi(o).then(carica).then(function(){
-    var era=!!modId;svuotaForm();toast(era?'Ordine aggiornato ✓':'Ordine salvato ✓');
+  var era=!!modId;
+  scriviLocale(o).then(function(){
+    var nuove=fotoForm.filter(function(f){return f.nuova&&!f.rimossa}).map(function(f){return {id:f.id,img:f.img,thumb:f.thumb}});
+    var tolte=fotoForm.filter(function(f){return !f.nuova&&f.rimossa});
+    return seq(tolte,function(f){return fotoRimuoviLocale(f.id)}).then(function(){return fotoAggiungiLocale(o.id,nuove)});
+  }).then(function(){sincronizza();return carica()}).then(function(){
+    svuotaForm();toast(era?'Ordine aggiornato ✓':'Ordine salvato ✓');
     if(vista!=='attivi'){setVista('attivi')}
     $('lista').scrollIntoView({behavior:'smooth',block:'start'});
   }).catch(function(){toast('Errore nel salvataggio')});
 });
 
 /* ---------- LISTA ---------- */
-function carica(){return tutti().then(function(l){ordini=l;disegna()})}
+function carica(){return Promise.all([tutti(),idbAll(FOTO)]).then(function(r){ordini=r[0];fotoMem=r[1];disegna()})}
+function fotoDi(id){return fotoMem.filter(function(f){return f.ordine_id===id}).sort(function(a,b){return a.creato-b.creato})}
 function setVista(v){
   vista=v;filtroMese='tutti';filtroPeriodo='';soloIncasso=false;apertoId='';
   $('vAttivi').classList.toggle('attivo',v==='attivi');
@@ -715,15 +904,18 @@ function schedaHtml(o,oggi){
     if(vista==='attivi'){if(o.data===oggi)et+='<span class="tag oggi">OGGI</span>';else if(passata)et+='<span class="tag scad">SCADUTA</span>'}
     if(o.allergie)et+='<span class="tag all">⚠ Allergie</span>';
     if(o.tipo_consegna==='domicilio')et+='<span class="tag dom">🚗 A domicilio</span>';
+    var nFoto=fotoDi(o.id).length;
+    if(nFoto)et+='<span class="tag foto">📷 '+nFoto+'</span>';
     if(o.prezzo||o.acconto)et+=saldo>0?'<span class="tag da">Da incassare '+euro(saldo)+'</span>':'<span class="tag ok">Saldato ✓</span>';
     if(et)h+='<div class="o-etichette">'+et+'</div>';
     h+='</div><span class="freccia" aria-hidden="true">▾</span></button>';
     h+='<div class="o-dettaglio">';
-    if(o.foto||o.dettagli){
-      h+='<div class="o-riga">';
-      if(o.foto)h+='<img class="o-miniatura" src="'+o.foto+'" alt="Bozza" data-zoom="1"/>';
-      h+='<div class="o-dettagli">'+(o.dettagli?esc(o.dettagli):'<em style="color:var(--testo-soft)">Nessun dettaglio</em>')+'</div></div>';
-    }
+    h+='<div class="o-dettagli">'+(o.dettagli?esc(o.dettagli):'<em style="color:var(--testo-soft)">Nessun dettaglio</em>')+'</div>';
+    var fl=fotoDi(o.id);
+    h+='<div class="o-foto">';
+    fl.forEach(function(f){h+=f.thumb?'<img class="o-thumb" src="'+f.thumb+'" alt="Foto" data-foto="'+f.id+'"/>':'<div class="o-thumb ph" data-foto="'+f.id+'">📷</div>'});
+    if(fl.length<MAX_FOTO)h+='<button type="button" class="o-addfoto" data-a="foto-agg" aria-label="Aggiungi foto"><span>📷</span>Aggiungi</button>';
+    h+='</div>';
     if(o.tipo_consegna==='domicilio'&&o.indirizzo){
       h+='<div class="o-consegna"><small>Consegna a domicilio</small><div class="ind">'+esc(o.indirizzo)+'</div></div>';
       h+='<div class="azioni-ind"><a class="az nav" href="https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(o.indirizzo)+'" target="_blank" rel="noopener">🧭 Naviga</a><button type="button" class="az copia" data-a="copia-ind">📋 Copia indirizzo</button></div>';
@@ -843,8 +1035,8 @@ $('lista').addEventListener('click',function(e){
       setTimeout(function(){var r=sc.getBoundingClientRect();if(r.top<70||r.bottom>window.innerHeight)sc.scrollIntoView({behavior:'smooth',block:'start'})},60)}
     return;
   }
-  var z=e.target.closest('[data-zoom]');
-  if(z){$('lbImg').src=z.src;$('lightbox').classList.add('on');return}
+  var zf=e.target.closest('[data-foto]');
+  if(zf){apriViewer(zf.closest('.ordine').getAttribute('data-id'),zf.getAttribute('data-foto'));return}
   var b=e.target.closest('[data-a]');if(!b)return;
   var id=b.closest('.ordine').getAttribute('data-id');
   var o=ordini.filter(function(x){return x.id===id})[0];if(!o)return;
@@ -875,6 +1067,10 @@ $('lista').addEventListener('click',function(e){
     scrivi(o).then(carica).then(function(){toast(r2((o.prezzo||0)-o.acconto)<=0?'Pagamento registrato — ordine saldato ✓':'Pagamento registrato: '+euro(imp))});
     return;
   }
+  if(a==='foto-agg'){
+    if(fotoDi(o.id).length>=MAX_FOTO){toast('Massimo '+MAX_FOTO+' foto per ordine');return}
+    fotoAggOrdine=o.id;$('fotoAgg').click();return;
+  }
   if(a==='ics'){scaricaIcs(o);return}
   if(a==='archivia'||a==='riapri'){
     o.archiviato=(a==='archivia');
@@ -888,34 +1084,123 @@ $('lista').addEventListener('click',function(e){
     $('data').value=o.data;$('ora').value=o.ora||'';$('cliente').value=o.cliente;$('tel').value=o.tel||'';impostaConsegna(o.tipo_consegna||'ritiro');$('indirizzo').value=o.indirizzo||'';
     $('dettagli').value=o.dettagli||'';$('allergie').value=o.allergie||'';
     $('prezzo').value=o.prezzo||'';$('acconto').value=o.acconto||'';
-    fotoCorrente=o.foto||'';mostraAnteprima();aggiornaSaldo();
+    fotoForm=fotoDi(o.id).map(function(f){return {id:f.id,thumb:f.thumb,nuova:false,rimossa:false}});disegnaFotoForm();aggiornaSaldo();
     $('formTitolo').textContent='Modifica ordine';$('modBanner').style.display='block';
     $('annulla').style.display='flex';$('salva').textContent='Salva modifiche';
     $('formCard').scrollIntoView({behavior:'smooth',block:'start'});
   }
 });
-$('chiudiLb').addEventListener('click',function(){$('lightbox').classList.remove('on')});
-$('lightbox').addEventListener('click',function(e){if(e.target.id==='lightbox')$('lightbox').classList.remove('on')});
+/* ---------- VISUALIZZATORE FOTO ---------- */
+var vw={ordine:'',lista:[],i:0};
+function ottieniImg(id){
+  return idbGet(FIMG,id).then(function(r){
+    if(r&&r.img)return r.img;
+    if(!sb||!navigator.onLine)return '';
+    return sb.from('foto_ordini').select('img').eq('id',id).then(function(x){
+      if(x.error||!x.data||!x.data[0])return '';
+      var img=x.data[0].img;
+      return idbPut(FIMG,{id:id,img:img}).then(function(){return img});
+    });
+  }).catch(function(){return ''});
+}
+function apriViewer(oid,fid){
+  vw.ordine=oid;vw.lista=fotoDi(oid);
+  vw.i=0;vw.lista.forEach(function(f,k){if(f.id===fid)vw.i=k});
+  $('lightbox').classList.add('on');mostraViewer();
+}
+function mostraViewer(){
+  var f=vw.lista[vw.i];
+  if(!f){$('lightbox').classList.remove('on');return}
+  $('lbImg').src=f.thumb||'';
+  $('lbConta').textContent=(vw.i+1)+' / '+vw.lista.length;
+  var molte=vw.lista.length>1;
+  $('lbPrec').style.display=molte?'flex':'none';$('lbSucc').style.display=molte?'flex':'none';
+  var id=f.id;
+  ottieniImg(id).then(function(img){
+    if(!$('lightbox').classList.contains('on')||!vw.lista[vw.i]||vw.lista[vw.i].id!==id)return;
+    if(img)$('lbImg').src=img;else toast('Foto intera non disponibile senza internet');
+  });
+}
+function vaiFoto(d){if(vw.lista.length<2)return;vw.i=(vw.i+d+vw.lista.length)%vw.lista.length;mostraViewer()}
+function chiudiViewer(){$('lightbox').classList.remove('on');$('lbImg').removeAttribute('src')}
+$('chiudiLb').addEventListener('click',chiudiViewer);
+$('lightbox').addEventListener('click',function(e){if(e.target.id==='lightbox')chiudiViewer()});
+$('lbPrec').addEventListener('click',function(){vaiFoto(-1)});
+$('lbSucc').addEventListener('click',function(){vaiFoto(1)});
+var tx0=null;
+$('lightbox').addEventListener('touchstart',function(e){tx0=e.touches&&e.touches[0]?e.touches[0].clientX:null},{passive:true});
+$('lightbox').addEventListener('touchend',function(e){
+  if(tx0===null)return;var t=e.changedTouches&&e.changedTouches[0];if(!t)return;
+  var dx=t.clientX-tx0;tx0=null;if(Math.abs(dx)>60)vaiFoto(dx<0?1:-1);
+},{passive:true});
+$('lbElimina').addEventListener('click',function(){
+  var f=vw.lista[vw.i];if(!f)return;
+  if(!confirm('Eliminare questa foto? Non si può recuperare.'))return;
+  apertoId=vw.ordine;
+  fotoRimuoviLocale(f.id).then(function(){sincronizza();return carica()}).then(function(){
+    vw.lista=fotoDi(vw.ordine);
+    if(!vw.lista.length){chiudiViewer()}else{vw.i=Math.min(vw.i,vw.lista.length-1);mostraViewer()}
+    toast('Foto eliminata');
+  });
+});
+$('fotoAgg').addEventListener('change',function(e){
+  var files=Array.prototype.slice.call(e.target.files||[]);e.target.value='';
+  var oid=fotoAggOrdine;fotoAggOrdine='';
+  if(!oid||!files.length)return;
+  var posti=MAX_FOTO-fotoDi(oid).length;
+  if(posti<=0){toast('Massimo '+MAX_FOTO+' foto per ordine');return}
+  toast('Preparo le foto…');
+  elaboraTutte(files,posti).then(function(r){
+    if(!r.items.length){toast('Foto non leggibile');return}
+    apertoId=oid;
+    return fotoAggiungiLocale(oid,r.items).then(function(){sincronizza();return carica()}).then(function(){
+      toast(r.scartate>0?'Massimo '+MAX_FOTO+' foto: ne ho aggiunte '+r.items.length:(r.items.length===1?'Foto aggiunta ✓':r.items.length+' foto aggiunte ✓'));
+    });
+  });
+});
 
 /* ---------- BACKUP ---------- */
 $('esporta').addEventListener('click',function(){
-  var blob=new Blob([JSON.stringify({versione:1,esportato:new Date().toISOString(),ordini:ordini})],{type:'application/json'});
-  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download='mavilo-ordini-'+isoOggi()+'.json';document.body.appendChild(a);a.click();
-  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);
-  toast('Copia scaricata');
+  var nota=$('statoStorage'),prima=nota.textContent;
+  nota.textContent='Preparo la copia…';
+  idbAll(FOTO).then(function(metas){
+    var out=[],k=0;
+    return seq(metas,function(m){
+      return ottieniImg(m.id).then(function(img){
+        out.push({id:m.id,ordine_id:m.ordine_id,creato:m.creato,thumb:m.thumb,img:img});
+        k++;nota.textContent='Preparo la copia… foto '+k+' di '+metas.length;
+      });
+    }).then(function(){return out});
+  }).then(function(fotoTutte){
+    var blob=new Blob([JSON.stringify({versione:2,esportato:new Date().toISOString(),ordini:ordini,foto:fotoTutte})],{type:'application/json'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='mavilo-ordini-'+isoOggi()+'.json';document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);
+    var senza=fotoTutte.filter(function(f){return !f.img}).length;
+    nota.textContent=prima;
+    toast(senza?'Copia scaricata, ma '+senza+' foto mancano (serve internet)':'Copia scaricata');
+  }).catch(function(){nota.textContent=prima;toast('Non sono riuscito a preparare la copia')});
 });
 $('importa').addEventListener('change',function(e){
   var f=e.target.files[0];if(!f)return;
   var fr=new FileReader();
   fr.onload=function(){
+    var j;
     try{
-      var j=JSON.parse(fr.result);
-      var lista=j.ordini||j;if(!Array.isArray(lista))throw 0;
-      var chain=Promise.resolve();
-      lista.forEach(function(o){if(o&&o.id&&o.data)chain=chain.then(function(){return scrivi(o)})});
-      chain.then(carica).then(function(){toast('Ripristinati '+lista.length+' ordini')});
-    }catch(err){toast('File non valido')}
+      j=JSON.parse(fr.result);
+      if(!(j.ordini||j)||!Array.isArray(j.ordini||j))throw 0;
+    }catch(err){toast('File non valido');return}
+    var lista=j.ordini||j,fotoL=Array.isArray(j.foto)?j.foto:[];
+    var validi=lista.filter(function(o){return o&&o.id&&o.data});
+    seq(validi,function(o){return scriviLocale(o)}).then(function(){
+      return seq(fotoL.filter(function(x){return x&&x.id&&x.ordine_id&&x.img}),function(x){
+        return (x.thumb?Promise.resolve(x.thumb):creaMiniatura(x.img).catch(function(){return ''})).then(function(th){
+          return idbPut(FOTO,{id:x.id,ordine_id:x.ordine_id,creato:x.creato||Date.now(),thumb:th,pending:true})
+            .then(function(){return idbPut(FIMG,{id:x.id,img:x.img})})
+            .then(function(){return idbPut(CODA,{id:'f:'+x.id,op:'fput',ts:Date.now()})});
+        });
+      });
+    }).then(function(){sincronizza();return carica()}).then(function(){toast('Ripristinati '+validi.length+' ordini'+(fotoL.length?' e '+fotoL.length+' foto':''))});
   };
   fr.readAsText(f);e.target.value='';
 });
@@ -968,12 +1253,12 @@ $('esci').addEventListener('click',function(){
   if(!confirm('Uscire dall\'account? Gli ordini restano salvati online.'))return;
   idbAll(CODA).then(function(c){
     if(c.length&&!confirm('Ci sono '+c.length+' modifiche non ancora inviate. Uscendo potrebbero andare perse. Uscire lo stesso?'))return;
-    return sb.auth.signOut().then(function(){return idbClear(STORE)}).then(function(){return idbClear(CODA)}).then(function(){location.reload()});
+    return sb.auth.signOut().then(function(){return idbClear(STORE)}).then(function(){return idbClear(CODA)}).then(function(){return idbClear(FOTO)}).then(function(){return idbClear(FIMG)}).then(function(){location.reload()});
   });
 });
 
 function avviaApp(){
-  $('data').value=isoOggi();
+  $('data').value=isoOggi();disegnaFotoForm();
   carica().then(function(){richiediPersistenza();aggiornaRete();sincronizza()});
 }
 
